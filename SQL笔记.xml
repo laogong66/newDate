@@ -1,0 +1,184 @@
+
+
+截取函数 与分组	
+<select id="queryListV" parameterType="map" resultMap="EsEquipUnsealAppResultMap">
+	SELECT
+		<include refid="columns"/>
+	FROM  es_equip_unseal_app t
+	WHERE DATE_FORMAT(t.SUBMIT_DATE,'%Y') = #{format}
+	ORDER BY
+	<!-- SUBSTR 字符函数截取-->
+	SUBSTR( t.APP_CODE,
+		CHAR_LENGTH(t.APP_CODE) - 2,
+		CHAR_LENGTH(t.APP_CODE)
+	) DESC
+	</select>
+	
+截取函数 根据,等任意字符截取
+SUBSTRING_INDEX(IMPLEMENTATION_UNIT_PER_NAMES,',',1) as imPerNames
+	
+行转列
+
+把task_state几行数据集合成一列显示
+"="可不要,可换任意关联
+SELECT impernames ,GROUP_CONCAT(task_state,"=" ,total) as 状态 from test GROUP BY impernames
+
+把p.TASK_STATE的几种状态放在几列显示
+ SELECT
+       p.PROJECT_NAME,p.PROJECT_STATE,p.ID,p.TASK_STATE,p.comSumTotal,p.yq,p.percentage,
+        max( CASE p.TASK_STATE WHEN 'NOT_IMPLEMENTED' THEN p.amount ELSE 0 END ) 'notImplemented',
+        max( CASE p.TASK_STATE WHEN 'IN_IMPLEMENTATION' THEN p.amount ELSE 0 END ) 'inImplementation',
+        max( CASE p.TASK_STATE WHEN 'PENDING_ACCEPTANCE' THEN p.amount ELSE 0 END ) 'pendingAcceptance',
+        max( CASE p.TASK_STATE WHEN 'COMPLETED' THEN p.amount ELSE 0 END ) 'completed'
+        FROM 表  GROUP BY xxx		
+行转列 同上	
+SELECT DISTINCT a.impernames ,
+(SELECT total FROM test b WHERE a.impernames=b.impernames and b.task_state="IN_IMPL") as "IN_IMPL",
+(SELECT total FROM test c WHERE a.impernames=c.impernames and c.task_state="NOT_IM") as "NOT_IM",
+(SELECT total FROM test d WHERE a.impernames=d.impernames and d.task_state="COMPCOMPLL") as "NOT_IM"
+from test a
+
+单行输出转列
+show create table xxx \G;
+select * from xxx \G;
+
+//关联查询,再行转列,再求总数(参考)
+select 		PROJECT_NAME,ID,PROJECT_STATE,TASK_STATE,notImplemented,inImplementation,pendingAcceptance,completed,	]
+(y.notImplemented + y.inImplementation + y.pendingAcceptance + y.completed) as s,
+round( (completed/(y.notImplemented + y.inImplementation + y.pendingAcceptance + y.completed) )*100,1 ) as rat   
+from (
+SELECT
+        p.PROJECT_NAME,p.ID,p.PROJECT_STATE,p.TASK_STATE,
+        max( CASE p.TASK_STATE WHEN 'NOT_IMPLEMENTED' THEN p.amount ELSE 0 END ) as 'notImplemented',
+        max( CASE p.TASK_STATE WHEN 'IN_IMPLEMENTATION' THEN p.amount ELSE 0 END ) as 'inImplementation',
+        max( CASE p.TASK_STATE WHEN 'PENDING_ACCEPTANCE' THEN p.amount ELSE 0 END ) as 'pendingAcceptance',
+        max( CASE p.TASK_STATE WHEN 'COMPLETED' THEN p.amount ELSE 0 END ) as 'completed'
+        FROM(
+
+select p.id,p.PROJECT_NAME,p.PROJECT_STATE,t.TASK_STATE,count(t.TASK_STATE) as amount from sp_project_info  p
+left join sp_task_info t on p.id = t.PROJECT_ID
+GROUP BY p.id,p.PROJECT_NAME,p.PROJECT_STATE,t.TASK_STATE) p
+GROUP BY p.id,p.PROJECT_NAME,p.PROJECT_STATE
+) y
+
+
+参考ifnull(t.amount,0)查询无数据返回0的函数
+round( (amount/total)*100,1 ) percentage 百分比展示函数
+ORDER BY d.SORT此项目中联查字典表进行状态排序
+d.DICT_CODE,根据字典显示状态名
+  <select id="queryCount" parameterType="list" resultType="com.cnpo.modules.plan.projectManagement.spTaskInfo.Vo.SpTaskQueryNuVo">
+        select d.id,d.DICT_CODE as TASK_STATE,d.DICT_NAME,total,ifnull(t.amount,0) as amount,ifnull(t.percentage,0) as percentage 
+		from p_dict d left join  (
+        select id,task_state,dict_name,amount,t2.total,round( (amount/total)*100,1 ) percentage
+        from
+        (select  s.id,s.TASK_STATE,p.DICT_NAME,count(1) amount
+        from  sp_task_info s
+        LEFT JOIN p_dict p on s.TASK_STATE = p.DICT_CODE  and  p.p_code = 'PROJECT_STATE'
+		WHERE s.PROJECT_ID = 'c6a08cf6f6ce4bf99c76a78cb022f3de'
+        GROUP BY s.TASK_STATE) t1
+		<!--简化SQL思路--
+		由里到外,由单个条件验证再多条件再关联单数据再多数据-->
+        INNER JOIN  (SELECT count(1) total from sp_task_info
+        )t2
+        group by TASK_STATE ) t
+        on d.DICT_CODE = t.TASK_STATE
+        where d.p_code = 'PROJECT_STATE'
+        ORDER BY d.SORT
+    </select>
+
+
+
+
+
+
+//多次嵌套,拼接方式太麻烦不可取
+ <select id="queryPerActivity" parameterType="list" resultType="com.cnpo.modules.plan.projectManagement.projectStatistics.Vo.SpTaskQueryDcVo">
+    SELECT SUBSTRING_INDEX( t1.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ),
+	t1.PROJECT_NAME,t1.TASK_STATE,t1.TASK_NAME,t1.PLAN_COMPLETE_DATE,t2.total,a2.inTotal,a1.pendTotal
+    FROM(
+	SELECT SUBSTRING_INDEX( s.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) IMPLEMENTATION_UNIT_PER_NAMES,
+		f.PROJECT_NAME,s.TASK_STATE,s.TASK_NAME,s.PLAN_COMPLETE_DATE
+	FROM sp_task_info s,sp_project_info f
+	WHERE s.PROJECT_ID = f.ID
+        <include refid="if-title-query"></include>
+	GROUP BY SUBSTRING_INDEX( s.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ),f.PROJECT_NAME,TASK_STATE
+	) t1
+	LEFT JOIN (
+	SELECT SUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) IMPLEMENTATION_UNIT_PER_NAMES,count( 1 ) total
+	FROM sp_task_info
+	<where>
+        <include refid="if-title-query"></include>
+    </where>
+	GROUP BYSUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+	) t2 ON 1 = 1
+	LEFT JOIN (
+	SELECT
+		SUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) IMPLEMENTATION_UNIT_PER_NAMES,count( 1 ) inTotal
+	FROM sp_task_info
+	WHERE TASK_STATE = 'IN_IMPLEMENTATION'
+        <include refid="if-title-query"></include>
+	GROUP BY SUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+	) a2 ON 1 = 1
+	LEFT JOIN (
+	SELECT SUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) IMPLEMENTATION_UNIT_PER_NAMES,count( 1 ) pendTotal
+	FROM sp_task_info
+	WHERE TASK_STATE = 'PENDING_ACCEPTANCE'
+        <include refid="if-title-query"></include>
+	GROUP BY SUBSTRING_INDEX( IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+	) a1 ON 1 = 1
+    WHERE
+	SUBSTRING_INDEX( t1.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) = SUBSTRING_INDEX( t2.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+	AND SUBSTRING_INDEX( t1.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) = SUBSTRING_INDEX( a2.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+	AND SUBSTRING_INDEX( t1.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) = SUBSTRING_INDEX( a1.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+    </select>
+对比
+  <select id="queryPerActivityTotal" parameterType="list" resultType="com.cnpo.modules.plan.projectManagement.projectStatistics.Vo.SpTaskQueryDaVo">
+           SELECT a.id,SUBSTRING_INDEX( a.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 ) as imPerNames,a.na,a.total,
+        max( CASE a.TASK_STATE WHEN 'IN_IMPLEMENTATION' THEN a.amount ELSE 0 END ) 'inImplementation',
+        max( CASE a.TASK_STATE WHEN 'PENDING_ACCEPTANCE' THEN a.amount ELSE 0 END ) 'pendingAcceptance'
+        FROM(
+        select id,IMPLEMENTATION_UNIT_PER_NAMES,TASK_STATE,amount,total,na
+        from
+        (select  s.id,s.IMPLEMENTATION_UNIT_PER_NAMES,s.TASK_STATE,p.DICT_NAME,count(1) amount
+        from  sp_task_info s
+        LEFT JOIN p_dict p on s.TASK_STATE = p.DICT_CODE  and  p.p_code = 'PROJECT_STATE'
+        and TASK_STATE in('IN_IMPLEMENTATION','COMPLETED','NOT_IMPLEMENTED','PENDING_ACCEPTANCE')
+        <include refid="if-title-query"></include>
+        GROUP BY s.IMPLEMENTATION_UNIT_PER_NAMES,p.DICT_NAME) t1
+        INNER JOIN  (SELECT count(1) total from sp_task_info where TASK_STATE in('IN_IMPLEMENTATION','COMPLETED','NOT_IMPLEMENTED','PENDING_ACCEPTANCE')
+        <include refid="if-title-query"></include>)t2 on 1=1
+        INNER JOIN 	(SELECT COUNT(DISTINCT PROJECT_ID)na FROM sp_task_info
+       >) t3 on 1=1
+        ) a
+        GROUP BY SUBSTRING_INDEX( a.IMPLEMENTATION_UNIT_PER_NAMES, ',', 1 )
+    </select>
+  
+全文检索语法
+SELECT * FROM articles WHERE MATCH (title,body)     AGAINST ('+apple -banana' IN BOOLEAN MODE);   + 表示AND，即必须包含。- 表示NOT，即不包含。
+
+SELECT * FROM articles WHERE MATCH (title,body)     AGAINST ('apple banana' IN BOOLEAN MODE);   apple和banana之间是空格，空格表示OR，即至少包含apple、banana中的一个。
+
+SELECT * FROM articles WHERE MATCH (title,body)     AGAINST ('+apple banana' IN BOOLEAN MODE);   必须包含apple，但是如果同时也包含banana则会获得更高的权重。
+
+SELECT * FROM articles WHERE MATCH (title,body)     AGAINST ('+apple ~banana' IN BOOLEAN MODE);   ~ 是我们熟悉的异或运算符。返回的记录必须包含apple，但是如果同时也
+包含banana会降低权重。但是它没有 +apple -banana 严格，因为后者如果包含banana压根就不返回。
+
+SELECT * FROM articles WHERE MATCH (title,body)     AGAINST ('+apple +(>banana <orange)' IN BOOLEAN MODE);   返回同时包含apple和banana或者同时包含apple和orange的记录。
+但是同时包含apple和banana的记录的权重高于同时包含apple和orange的记录。
+
+
+
+and MATCH(result.GZNR) AGAINST(#{jlnr} in boolean mode)    全局搜索 之布尔查找
+
+
+
+
+
+
+
+
+
+
+
+
+
